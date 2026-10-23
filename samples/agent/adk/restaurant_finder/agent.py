@@ -276,6 +276,9 @@ class RestaurantAgent:
             )
 
             full_content_list = []
+            # Why the model stopped (e.g. RECITATION, SAFETY), for diagnosing
+            # empty responses.
+            model_status: dict[str, Any] = {}
             parts_streamed = False
 
             async def token_stream():
@@ -291,6 +294,10 @@ class RestaurantAgent:
                     ),
                     new_message=current_message,
                 ):
+                    if event.finish_reason or event.error_code:
+                        model_status["finish_reason"] = event.finish_reason
+                        model_status["error_code"] = event.error_code
+                        model_status["error_message"] = event.error_message
                     if event.content and event.content.parts:
                         for p in event.content.parts:
                             if p.text:
@@ -332,6 +339,17 @@ class RestaurantAgent:
                     "--- RestaurantAgent.stream: Validating UI response (Attempt"
                     f" {attempt})... ---"
                 )
+                if not final_response_content.strip():
+                    # An empty response usually means the model was blocked
+                    # (e.g. finish_reason=RECITATION), not that it produced
+                    # malformed A2UI.
+                    logger.warning(
+                        "--- RestaurantAgent.stream: Model returned no text"
+                        f" (finish_reason={model_status.get('finish_reason')},"
+                        f" error_code={model_status.get('error_code')},"
+                        f" error_message={model_status.get('error_message')})"
+                        f" (Attempt {attempt}) ---"
+                    )
                 try:
                     response_parts = processor.parse_response(final_response_content)
 
